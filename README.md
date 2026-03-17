@@ -1,2 +1,6 @@
-# marker-based-IFC
-Implements a proof of concept for Information Flow Control tied to Augmented Reality Markers
+# Information Flow Control in Augmented Reality: Project Spec
+
+# Project Goal
+The goal of this project is to implement an Information Flow Control (cite) system for Augmented Reality platforms in which physical markers enforce confidentiality polcies over associated virtual content. In a manner similar to the Decentralized Label Model (cite), a formal security label will be attatched to each marker in an environment that dictates what virtual content can legally be displayed to the current user based on that user's permission level and user group. The system will ensure that before sensitive data is displayed at environment markers, users will be screened to determine which virtual content (if any) can be displayed to the user such that the attatched confidentiality policy is enforced. With hands-free applications in mind, we will implement identity verification via voice recognition via device microphones.
+
+Existing research on privacy and security in Augmented Reality systems largely focuses on methods to shield user privacy from invasive applications with access to potentially sentive data streams such as video and audio recording. Research on intra-user privacy in shared AR environments is far more limited, and generally omits any strong formal security framework to address hierarchical access control. Additionally, limited literature discusses access control for physically-bound virtual objects anchored via markers. I attempt to address this gap by implementing a system for formal and compositional Information Flow Control in marker-based AR environments.
