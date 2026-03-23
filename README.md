@@ -11,8 +11,8 @@ I plan to implement this system as an iOS based AR application utilizing SwiftUI
 1. Runs a constant AR view that streams camera and audio input
 2. When a marker is detected, the system loads the attatched policies and generates and displays a pin code
 3. Under a ten second time frame the system observes audio input and attempts to:
-   a) Use SpeechKit to identify the speaker and load their clearance level
-   b) Monitor SFSpeechRecognizer transcript for the correct pin code
+   (1) Use SpeechKit to identify the speaker and load their clearance level and
+   (2) Monitor SFSpeechRecognizer transcript for the correct pin code
 4. If either identification or transcription fails reset pin code
 5. Otherwise, compare the clearance level of the identified user to the attatched marker policy, display sensitive marker-gated virtual object only if acceptable
    
