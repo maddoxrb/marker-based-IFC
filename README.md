@@ -1,4 +1,4 @@
-# Information Flow Control in Augmented Reality: Project Spec
+# Speech-Gated IFC in AR
 
 # Project Goal
 The goal of this project is to implement an Information Flow Control system for Augmented Reality platforms in which physical markers enforce confidentiality polcies over associated virtual content. In a manner similar to the Decentralized Label Model, a formal security label will be attatched to each marker in an environment that dictates what virtual content can legally be displayed to the current user based on that user's permission level and user group. Likewise, the system will allow controlled movement of virtual objects between markers in a manner such that objects may only be moved to markers of equal or greater restrictiveness. With hands free applications in mind, the system will implement identity verification before sensitive data may be displayed at a marker via voice identification. To prevent potential issues concerning malicious pre-recorded voice clips, each marker will display a randomized pin code that must correctly read out loud.
