@@ -1,0 +1,17 @@
+{
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "resources" : [
+    {
+      "filename" : "MarkerA.arreferenceimage"
+    },
+    {
+      "filename" : "MarkerB.arreferenceimage"
+    },
+    {
+      "filename" : "MarkerC.arreferenceimage"
+    }
+  ]
+}
