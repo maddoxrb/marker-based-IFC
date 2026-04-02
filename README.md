@@ -45,6 +45,8 @@ If I fall behind, I would likely reduce the number of markers and supported acce
 
 # MVD
 
+Demo video: https://drive.google.com/file/d/1RnSmN3ITkwFBIuCRpVKiP9z_0hfi7tOg/view?usp=drivesdk
+
 This MVD lays out the core functionality and testing suite for the project. In particular, this MVD adds the following:
 1. Three predefined access control groups defined in increasing restrictiveness: public -> employee -> admin
 2. Implements a basic UI and control flow (credit https://github.com/pinlunhuang/Voice-Recorder) to allow users to set up new user profiles under one of the three access control groups, and add 1+ 10 second voice clips for authentication.
