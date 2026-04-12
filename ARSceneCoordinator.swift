@@ -29,6 +29,7 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
     private var anchorIDToMarkerName: [UUID: String] = [:]
     private var lastKnownMarkerPolicies: [String: MarkerPolicy]
     private var lastConfiguredImageNames: Set<String> = []
+    private var lastAuthenticationDisplaySignature: String
 
     private let baseObjectHeight: Float = 0.02
     private let objectsPerRing = 6
@@ -46,6 +47,7 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
         self.lastDetectedMarker = lastDetectedMarker
         self.lastDecision = lastDecision
         self.lastKnownMarkerPolicies = appModel.markerPolicies
+        self.lastAuthenticationDisplaySignature = appModel.authenticationDisplaySignature
         super.init()
     }
 
@@ -104,6 +106,18 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
         refreshAllContentForCurrentRole()
     }
 
+    func syncAuthenticationDisplayIfNeeded() {
+        let signature = appModel.authenticationDisplaySignature
+        guard signature != lastAuthenticationDisplaySignature else { return }
+
+        lastAuthenticationDisplaySignature = signature
+        refreshAllContentForCurrentRole()
+
+        if let markerName = lastDetectedMarker.wrappedValue {
+            lastDecision.wrappedValue = policyDecisionText(for: markerName)
+        }
+    }
+
     func refreshAllContentForCurrentRole() {
         for objectID in objectStates.keys {
             ensureEntityExists(for: objectID)
@@ -112,6 +126,7 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
 
         for markerName in markerStates.keys {
             layoutObjects(on: markerName)
+            updateVerificationLabel(for: markerName)
         }
     }
 
@@ -247,6 +262,8 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
             entity.setParent(anchorEntity, preservingWorldTransform: false)
             updatePresentation(for: objectID)
         }
+
+        updateVerificationLabel(for: markerName)
     }
 
     private func ensureEntityExists(for objectID: UUID) {
@@ -287,68 +304,82 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
         guard let object = objectStates[objectID], let entity = objectEntities[objectID] else { return }
 
         entity.isEnabled = markerStates[object.markerName]?.isVisible == true
+            && appModel.shouldDisplayObject(for: object.markerName)
         guard entity.isEnabled else { return }
 
         let descriptor = renderDescriptor(for: object)
         entity.model = ModelComponent(mesh: descriptor.mesh, materials: [descriptor.material])
         entity.children.first(where: { $0.name == labelChildName })?.removeFromParent()
+    }
+
+    
+    private func updateVerificationLabel(for markerName: String) {
+        guard let marker = markerStates[markerName], let anchorEntity = marker.anchorEntity else {
+            return
+        }
+
+        anchorEntity.children.first(where: { $0.name == labelChildName })?.removeFromParent()
+
+        guard marker.isVisible, let billboard = appModel.markerBillboard(for: markerName) else {
+            return
+        }
+
+        let labelText: String
+        let materialColor: UIColor
+
+        switch billboard {
+        case .pincode(let pincode):
+            labelText = pincode
+            materialColor = .black
+        case .restricted:
+            labelText = "Restricted"
+            materialColor = .red
+        }
 
         let label = ModelEntity(
             mesh: .generateText(
-                descriptor.label,
-                extrusionDepth: 0.001,
-                font: .systemFont(ofSize: 0.12),
+                labelText,
+                extrusionDepth: 0.0006,
+                font: .systemFont(ofSize: 0.04, weight: .semibold),
                 containerFrame: .zero,
                 alignment: .center,
-                lineBreakMode: .byWordWrapping
+                lineBreakMode: .byClipping
             ),
-            materials: [SimpleMaterial(color: .white, roughness: 0.2, isMetallic: false)]
+            materials: [UnlitMaterial(color: materialColor)]
         )
+
         label.name = labelChildName
-        label.position = [0, 0.055, 0]
-        entity.addChild(label)
+        let bounds = label.visualBounds(relativeTo: label)
+        label.position = [-bounds.center.x, 0.04 - bounds.min.y, 0]
+        anchorEntity.addChild(label)
     }
 
-    private func renderDescriptor(for object: ObjectRuntimeState) -> (mesh: MeshResource, material: SimpleMaterial, label: String) {
-        let requiredLevel = markerPolicy(for: object.markerName).minimumRole
-        guard currentAccessLevel.dominates(requiredLevel) else {
-            return (
-                .generateBox(size: 0.06, cornerRadius: 0.004),
-                SimpleMaterial(color: .red, roughness: 0.3, isMetallic: false),
-                "Restricted • \(requiredLevel.displayName)"
-            )
-        }
-
+    private func renderDescriptor(for object: ObjectRuntimeState) -> (mesh: MeshResource, material: SimpleMaterial) {
         switch object.objectID {
         case PresetObject.cubeGreen.rawValue:
             return (
                 .generateBox(size: 0.06, cornerRadius: 0.004),
-                SimpleMaterial(color: .green, roughness: 0.2, isMetallic: false),
-                "Green Cube • \(requiredLevel.displayName)"
+                SimpleMaterial(color: .green, roughness: 0.2, isMetallic: false)
             )
         case PresetObject.coneBlue.rawValue:
             return (
                 .generateCone(height: 0.07, radius: 0.035),
-                SimpleMaterial(color: .blue, roughness: 0.2, isMetallic: false),
-                "Blue Cone • \(requiredLevel.displayName)"
+                SimpleMaterial(color: .blue, roughness: 0.2, isMetallic: false)
             )
         case PresetObject.spherePurple.rawValue:
             return (
                 .generateSphere(radius: 0.035),
-                SimpleMaterial(color: .purple, roughness: 0.2, isMetallic: true),
-                "Purple Sphere • \(requiredLevel.displayName)"
+                SimpleMaterial(color: .purple, roughness: 0.2, isMetallic: true)
             )
         case PresetObject.panelRed.rawValue:
             return (
                 .generateBox(size: 0.06, cornerRadius: 0.004),
-                SimpleMaterial(color: .red, roughness: 0.3, isMetallic: false),
-                "Red Panel • \(requiredLevel.displayName)"
+                SimpleMaterial(color: .red, roughness: 0.3, isMetallic: false)
             )
         default:
             return (
                 .generateBox(size: 0.06, cornerRadius: 0.004),
-                SimpleMaterial(color: .gray, roughness: 0.3, isMetallic: false),
-                "Unknown • \(requiredLevel.displayName)"
+                SimpleMaterial(color: .gray, roughness: 0.3, isMetallic: false)
             )
         }
     }

@@ -20,6 +20,7 @@ struct MarkerTrackingView: UIViewRepresentable {
         context.coordinator.updateAccessLevel(appModel.effectiveAccessLevel)
         context.coordinator.updateReferenceImagesIfNeeded(runtimeImages: appModel.runtimeReferenceImages)
         context.coordinator.syncMarkerPoliciesIfNeeded()
+        context.coordinator.syncAuthenticationDisplayIfNeeded()
     }
 
     func makeCoordinator() -> ARSceneCoordinator {

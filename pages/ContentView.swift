@@ -39,8 +39,33 @@ struct ContentView: View {
                         .pickerStyle(.segmented)
                     } else {
                         VStack(alignment: .leading, spacing: 4) {
+                            Text("Registered speakers:")
+                                .fontWeight(.semibold)
+                            if appModel.speakerProfiles.isEmpty {
+                                Text("No registered speakers.")
+                                    .lineLimit(nil)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else {
+                                ForEach(appModel.speakerProfiles) { profile in
+                                    Text(speakerPanelSummary(for: profile))
+                                        .lineLimit(nil)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .textSelection(.enabled)
+                                }
+                            }
                             Text("Voice auth: \(appModel.speakerAuthenticationStatus)")
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text("Identity: \(appModel.activeIdentitySummary)")
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("Failure cause: \(appModel.lastAuthenticationFailureCause?.displayName ?? "—")")
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("Transcript: \(appModel.lastAuthenticationTranscript?.isEmpty == false ? appModel.lastAuthenticationTranscript! : "—")")
+                                .lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
                             if appModel.isSpeakerAuthenticationInProgress {
                                 ProgressView()
                                     .progressViewStyle(.linear)
@@ -55,6 +80,7 @@ struct ContentView: View {
                             .buttonStyle(.bordered)
                         }
                         .font(.footnote)
+                        .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
@@ -104,5 +130,16 @@ struct ContentView: View {
             AddMarkerSheet()
                 .environmentObject(appModel)
         }
+    }
+
+    private func speakerPanelSummary(for profile: SpeakerProfile) -> String {
+        let scoreText: String
+        if let score = appModel.lastSpeakerScores.first(where: { $0.profileID == profile.id }) {
+            scoreText = score.score.formatted(.number.precision(.fractionLength(3)))
+        } else {
+            scoreText = "—"
+        }
+
+        return "\(profile.displayName) (\(profile.accessLevel.displayName), clips: \(profile.referenceClipNames.count)) score: \(scoreText)"
     }
 }
