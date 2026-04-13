@@ -10,11 +10,11 @@ typealias ARObjectID = String
 // For actual UI see /pages
 
 final class AppModel: ObservableObject {
-    private static let speakerProfilesStorageKey = "speaker_profiles"
     private static let manualModeMessage = "Manual role selection controls visibility."
     private static let noSpeakerProfilesMessage = "No enrolled speakers configured. Add one in Manage Speakers."
     private static let readyForSpeakerMessage = "Scan a marker, then speak to authenticate."
     static let voiceRecordingDuration: TimeInterval = 10 // 10 seems to be the best balance for identification
+    static let authenticationRecordingDuration: TimeInterval = 6
 
     // see assets/ARresources for the defaut marker images
     private static let defaultMarkerPolicies: [String: MarkerPolicy] = [
@@ -37,6 +37,10 @@ final class AppModel: ObservableObject {
     @Published var speakerProfiles: [SpeakerProfile]
     @Published private(set) var authenticatedSpeaker: AuthenticatedSpeaker?
     @Published private(set) var speakerAuthenticationStatus = AppModel.manualModeMessage
+    @Published private(set) var speakerVerificationChallenge: SpeakerVerificationChallenge?
+    @Published private(set) var lastAuthenticationTranscript: String?
+    @Published private(set) var lastAuthenticationFailureCause: AuthenticationFailureCause?
+    @Published private(set) var lastSpeakerScores: [SpeakerScore] = []
 
     private let speakerAuthenticator: any SpeakerAuthenticating
     private let voiceSampleRecorder: any VoiceSampleRecording
@@ -48,7 +52,7 @@ final class AppModel: ObservableObject {
         speakerAuthenticator: (any SpeakerAuthenticating)? = nil,
         voiceSampleRecorder: (any VoiceSampleRecording)? = nil
     ) {
-        speakerProfiles = Self.loadSpeakerProfiles()
+        speakerProfiles = []
         self.speakerAuthenticator = speakerAuthenticator ?? PicovoiceEagleSpeakerAuthenticator()
         self.voiceSampleRecorder = voiceSampleRecorder ?? VoiceSampleRecorder()
     }
@@ -68,6 +72,14 @@ final class AppModel: ObservableObject {
 
     var isSpeakerAuthenticationInProgress: Bool {
         authenticationTask != nil
+    }
+
+    var authenticationDisplaySignature: String {
+        let challenge = speakerVerificationChallenge.map { "\($0.markerName):\($0.pincode)" } ?? "none"
+        let speakerID = authenticatedSpeaker?.profile.id ?? "none"
+        let failureCause = lastAuthenticationFailureCause?.displayName ?? "none"
+        let authenticationState = authenticationTask == nil ? "idle" : "active"
+        return "\(authenticationMode.rawValue)|\(speakerID)|\(challenge)|\(failureCause)|\(authenticationState)"
     }
 
     // logic for add marker page, see page/AddMarkerSheet.swift
@@ -92,6 +104,10 @@ final class AppModel: ObservableObject {
 
     func handleMarkerScan(_ markerName: String) {
         lastObservedMarker = markerName
+        let requiredLevel = markerPolicy(for: markerName).minimumRole
+
+        guard requiredLevel != .public else { return }
+
         guard authenticationMode == .speaker,
               authenticatedSpeaker == nil,
               authenticationTask == nil,
@@ -101,16 +117,66 @@ final class AppModel: ObservableObject {
 
     // TODO: May want to change this logic, currenty must rescan marker after failure
     func retrySpeakerAuthentication() {
-        guard let lastObservedMarker else {
+        guard let markerName = speakerVerificationChallenge?.markerName ?? lastObservedMarker else {
             speakerAuthenticationStatus = "Scan a marker before retrying voice authentication."
             return
         }
-        startSpeakerAuthentication(for: lastObservedMarker, force: true)
+        startSpeakerAuthentication(for: markerName, force: true)
     }
 
     func clearSpeakerAuthentication() {
         resetSpeakerAuthentication()
-        speakerAuthenticationStatus = speakerProfiles.isEmpty? Self.noSpeakerProfilesMessage: "Authentication cleared. Scan a marker, then speak to authenticate."
+        speakerAuthenticationStatus = speakerProfiles.isEmpty
+            ? Self.noSpeakerProfilesMessage
+            : "Authentication cleared. Scan a marker, then speak to authenticate."
+    }
+
+    func verificationLabelText(for markerName: String) -> String? {
+        guard case .pincode(let pincode) = markerBillboard(for: markerName) else { return nil }
+        return pincode
+    }
+
+    func shouldDisplayObject(for markerName: String) -> Bool {
+        let requiredLevel = markerPolicy(for: markerName).minimumRole
+
+        switch authenticationMode {
+        case .manual:
+            return currentAccessLevel.dominates(requiredLevel)
+        case .speaker:
+            if requiredLevel == .public {
+                return true
+            }
+
+            guard let authenticatedSpeaker else { return false }
+            return authenticatedSpeaker.profile.accessLevel.dominates(requiredLevel)
+        }
+    }
+
+    func markerBillboard(for markerName: String) -> MarkerBillboard? {
+        guard !shouldDisplayObject(for: markerName) else { return nil }
+
+        switch authenticationMode {
+        case .manual:
+            return .restricted
+        case .speaker:
+            let requiredLevel = markerPolicy(for: markerName).minimumRole
+            guard requiredLevel != .public else { return nil }
+
+            if authenticatedSpeaker != nil {
+                return .restricted
+            }
+
+            guard let challenge = speakerVerificationChallenge,
+                  challenge.markerName == markerName else {
+                return nil
+            }
+
+            if lastAuthenticationFailureCause != nil {
+                return .restricted
+            }
+
+            return .pincode(challenge.pincode)
+        }
     }
 
     func addSpeakerProfile(name: String, accessLevel: AccessLevel) {
@@ -118,7 +184,6 @@ final class AppModel: ObservableObject {
         guard !name.isEmpty else { return }
 
         speakerProfiles.append(SpeakerProfile(id: UUID().uuidString, displayName: name, accessLevel: accessLevel, referenceClipNames: []))
-        persistSpeakerProfiles()
         refreshSpeakerStatusIfNeeded()
     }
 
@@ -127,7 +192,6 @@ final class AppModel: ObservableObject {
 
         speakerProfiles[index].displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         speakerProfiles[index].accessLevel = accessLevel
-        persistSpeakerProfiles()
     }
 
     func deleteSpeakerProfile(id: String) {
@@ -139,7 +203,6 @@ final class AppModel: ObservableObject {
             authenticatedSpeaker = nil
         }
 
-        persistSpeakerProfiles()
         refreshSpeakerStatusIfNeeded()
     }
 
@@ -148,7 +211,6 @@ final class AppModel: ObservableObject {
 
         speakerProfiles[index].referenceClipNames.removeAll { $0 == clipName }
         SpeakerClipStore.deleteClip(named: clipName)
-        persistSpeakerProfiles()
     }
 
     func recordSpeakerClip(for profileID: String, duration: TimeInterval = AppModel.voiceRecordingDuration) async throws {
@@ -164,7 +226,6 @@ final class AppModel: ObservableObject {
             speakerProfiles[index].referenceClipNames.append(clipName)
         }
 
-        persistSpeakerProfiles()
         refreshSpeakerStatusIfNeeded()
     }
 
@@ -174,6 +235,7 @@ final class AppModel: ObservableObject {
 
     private func startSpeakerAuthentication(for markerName: String, force: Bool = false) {
         guard authenticationMode == .speaker else { return }
+        guard markerPolicy(for: markerName).minimumRole != .public else { return }
         guard !speakerProfiles.isEmpty else {
             speakerAuthenticationStatus = Self.noSpeakerProfilesMessage
             return
@@ -188,27 +250,83 @@ final class AppModel: ObservableObject {
             authenticatedSpeaker = nil
         }
 
+        let challenge = ensureSpeakerVerificationChallenge(for: markerName)
         lastAttemptedMarker = markerName
-        speakerAuthenticationStatus = "Speak now to authenticate for \(markerName)."
+        lastAuthenticationTranscript = nil
+        lastAuthenticationFailureCause = nil
+        lastSpeakerScores = []
+        speakerAuthenticationStatus = "Speak naturally for \(markerName) and include pin \(challenge.pincode)."
 
         authenticationTask = Task { [weak self] in
             guard let self else { return }
 
             do {
-                let sampleURL = try await self.voiceSampleRecorder.recordSample(duration: Self.voiceRecordingDuration)
-                try Task.checkCancellation()
+                let speakerEvaluationSession: (any LiveSpeakerEvaluating)?
+                let speakerEvaluationSetupError: Error?
 
-                await MainActor.run {
-                    self.speakerAuthenticationStatus = "Matching voice sample for \(markerName)..."
+                do {
+                    speakerEvaluationSession = try await self.speakerAuthenticator.makeEvaluationSession(against: self.speakerProfiles)
+                    speakerEvaluationSetupError = nil
+                } catch {
+                    speakerEvaluationSession = nil
+                    speakerEvaluationSetupError = error
                 }
 
-                let match = try await self.speakerAuthenticator.matchSpeaker(sampleURL: sampleURL, against: self.speakerProfiles)
+                let authenticationSample = try await self.voiceSampleRecorder.recordAuthenticationSample(
+                    duration: Self.authenticationRecordingDuration,
+                    speakerEvaluationSession: speakerEvaluationSession
+                )
                 try Task.checkCancellation()
 
                 await MainActor.run {
-                    self.authenticatedSpeaker = AuthenticatedSpeaker(profile: match.profile, confidence: match.confidence)
-                    self.speakerAuthenticationStatus = "Authenticated as \(match.profile.displayName) (\(match.profile.accessLevel.displayName))."
+                    self.lastAuthenticationTranscript = authenticationSample.transcript
+                    self.speakerAuthenticationStatus = "Matching voice sample and pincode for \(markerName)..."
+                }
+
+                let codeMatched = SpokenPincodeMatcher.transcript(authenticationSample.transcript, contains: challenge.pincode)
+                let speakerEvaluationResult: Result<SpeakerEvaluation, Error>
+                if let speakerEvaluationResultFromSample = authenticationSample.speakerEvaluationResult {
+                    speakerEvaluationResult = speakerEvaluationResultFromSample
+                } else if let speakerEvaluationSetupError {
+                    speakerEvaluationResult = .failure(speakerEvaluationSetupError)
+                } else {
+                    speakerEvaluationResult = .failure(SpeakerAuthenticationError.noSpeakerMatch)
+                }
+                try Task.checkCancellation()
+
+                if case .success(let evaluation) = speakerEvaluationResult,
+                   let match = evaluation.bestMatch,
+                   codeMatched {
+                    await MainActor.run {
+                        self.authenticatedSpeaker = AuthenticatedSpeaker(profile: match.profile, confidence: match.confidence)
+                        self.speakerVerificationChallenge = nil
+                        self.lastAuthenticationFailureCause = nil
+                        self.lastSpeakerScores = evaluation.scores
+                        self.speakerAuthenticationStatus = "Authenticated as \(match.profile.displayName) (\(match.profile.accessLevel.displayName))."
+                        self.authenticationTask = nil
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    self.authenticatedSpeaker = nil
+                    if case .success(let evaluation) = speakerEvaluationResult {
+                        self.lastSpeakerScores = evaluation.scores
+                    } else {
+                        self.lastSpeakerScores = []
+                    }
+                    self.lastAuthenticationFailureCause = Self.failureCause(
+                        speakerEvaluationResult: speakerEvaluationResult,
+                        codeMatched: codeMatched
+                    )
+                    self.rotateSpeakerVerificationChallenge(for: markerName)
+                    self.speakerAuthenticationStatus = Self.failureMessage(
+                        speakerEvaluationResult: speakerEvaluationResult,
+                        codeMatched: codeMatched,
+                        transcript: authenticationSample.transcript
+                    )
                     self.authenticationTask = nil
+                    self.lastAttemptedMarker = nil
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -217,8 +335,12 @@ final class AppModel: ObservableObject {
             } catch {
                 await MainActor.run {
                     self.authenticatedSpeaker = nil
+                    self.lastSpeakerScores = []
+                    self.lastAuthenticationFailureCause = Self.failureCause(for: error)
+                    self.rotateSpeakerVerificationChallenge(for: markerName)
                     self.speakerAuthenticationStatus = error.localizedDescription
                     self.authenticationTask = nil
+                    self.lastAttemptedMarker = nil
                 }
             }
         }
@@ -228,7 +350,100 @@ final class AppModel: ObservableObject {
         authenticationTask?.cancel()
         authenticationTask = nil
         authenticatedSpeaker = nil
+        speakerVerificationChallenge = nil
+        lastAuthenticationTranscript = nil
+        lastAuthenticationFailureCause = nil
+        lastSpeakerScores = []
         lastAttemptedMarker = nil
+    }
+
+    private func ensureSpeakerVerificationChallenge(for markerName: String) -> SpeakerVerificationChallenge {
+        if let existingChallenge = speakerVerificationChallenge,
+           existingChallenge.markerName == markerName {
+            return existingChallenge
+        }
+
+        let challenge = SpeakerVerificationChallenge(markerName: markerName, pincode: Self.generatePincode())
+        speakerVerificationChallenge = challenge
+        return challenge
+    }
+
+    private func rotateSpeakerVerificationChallenge(for markerName: String) {
+        speakerVerificationChallenge = SpeakerVerificationChallenge(markerName: markerName, pincode: Self.generatePincode())
+    }
+
+    private func markerPolicy(for markerName: String) -> MarkerPolicy {
+        markerPolicies[markerName] ?? MarkerPolicy(minimumRole: .public, objectID: PresetObject.cubeGreen.rawValue)
+    }
+
+    private static func generatePincode() -> String {
+        String(format: "%04d", Int.random(in: 0...9_999))
+    }
+
+    private static func failureCause(
+        speakerEvaluationResult: Result<SpeakerEvaluation, Error>,
+        codeMatched: Bool
+    ) -> AuthenticationFailureCause? {
+        let speakerMatched: Bool
+        switch speakerEvaluationResult {
+        case .success(let evaluation):
+            speakerMatched = evaluation.bestMatch != nil
+        case .failure:
+            speakerMatched = false
+        }
+
+        switch (speakerMatched, codeMatched) {
+        case (true, true):
+            return nil
+        case (false, true):
+            return .identification
+        case (true, false):
+            return .code
+        case (false, false):
+            return .identificationAndCode
+        }
+    }
+
+    private static func failureMessage(
+        speakerEvaluationResult: Result<SpeakerEvaluation, Error>,
+        codeMatched: Bool,
+        transcript: String
+    ) -> String {
+        switch failureCause(speakerEvaluationResult: speakerEvaluationResult, codeMatched: codeMatched) {
+        case .identification:
+            if case .failure(let error) = speakerEvaluationResult {
+                return error.localizedDescription
+            }
+            return "Speaker identification failed. Try speaking again."
+        case .code:
+            return SpeakerAuthenticationError.challengeCodeMismatch(transcript: transcript).localizedDescription
+        case .identificationAndCode:
+            return "Speaker identification and pincode verification both failed. Try the new code."
+        case nil:
+            return "Authentication failed."
+        }
+    }
+
+    private static func failureCause(for error: Error) -> AuthenticationFailureCause? {
+        guard let error = error as? SpeakerAuthenticationError else { return nil }
+
+        switch error {
+        case .speechRecognitionPermissionDenied,
+             .speechRecognitionUnavailable,
+             .speechRecognitionFailed,
+             .challengeCodeMismatch:
+            return .code
+        case .picovoiceAccessKeyMissing,
+             .eagleSDKNotInstalled,
+             .missingReferenceClips,
+             .noSpeakerProfilesConfigured,
+             .enrollmentFailed,
+             .noSpeakerMatch:
+            return .identification
+        case .microphonePermissionDenied,
+             .recordingFailed:
+            return .identificationAndCode
+        }
     }
 
     private func refreshSpeakerStatusIfNeeded() {
@@ -241,16 +456,6 @@ final class AppModel: ObservableObject {
     private func speakerProfileIndex(for id: String) -> Int? {
         speakerProfiles.firstIndex { $0.id == id }
     }
-
-    private func persistSpeakerProfiles() {
-        guard let encodedProfiles = try? JSONEncoder().encode(speakerProfiles) else { return }
-        UserDefaults.standard.set(encodedProfiles, forKey: Self.speakerProfilesStorageKey)
-    }
-
-    private static func loadSpeakerProfiles() -> [SpeakerProfile] {
-        guard let storedProfiles = UserDefaults.standard.data(forKey: speakerProfilesStorageKey) else { return [] }
-        return (try? JSONDecoder().decode([SpeakerProfile].self, from: storedProfiles)) ?? []
-    }
 }
 
 struct MarkerPolicy: Equatable {
@@ -261,4 +466,26 @@ struct MarkerPolicy: Equatable {
         self.minimumRole = minimumRole
         self.objectID = objectID
     }
+}
+
+enum AuthenticationFailureCause: Equatable {
+    case identification
+    case code
+    case identificationAndCode
+
+    var displayName: String {
+        switch self {
+        case .identification:
+            return "Identification"
+        case .code:
+            return "Code"
+        case .identificationAndCode:
+            return "Identification + Code"
+        }
+    }
+}
+
+enum MarkerBillboard: Equatable {
+    case pincode(String)
+    case restricted
 }
