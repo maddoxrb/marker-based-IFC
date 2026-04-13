@@ -81,12 +81,11 @@ Existing research on privacy and security in Augmented Reality systems largely f
 ## System Design and Implementation
 To develop this project, I used an agile-like process to slowly build sections of the code in shorts sprints, slowly layering more complexity on top of each foundational piece. I initially began by just developing the marker recognition logic, this was suprisingly simple and easy to implement through ARKit and RealityKit, their documentation was thorough and the SDK abstracts away much of the complexity. With marker tracking developed, I then began working on some of the necessary Swift-side UIs, particuraly marker registration, audio capture (credit [Voice Recorder](https://github.com/pinlunhuang/Voice-Recorder)), and user registration. 
 
-<img width="585" height="1266" alt="IMG_7256" src="https://github.com/user-attachments/assets/ffa6ff2c-6815-4ba2-b365-6ef97461f860" />
-
+<img src="https://github.com/user-attachments/assets/ffa6ff2c-6815-4ba2-b365-6ef97461f860" width="50%"/>
 
 With core pieces in place, I then worked on the confidentiality policy system. Firstly I defined policies by the virtual object attatched and the required access level (public, employee, admin) required to view it, and created a mapping system from markers to policies. I added in a simple UI that would allow policies to be added and edited for each marker, which helped a lot with testing. Then in the scene coordinator I added the actual policy enforcement logic, which allows visibility if a user has been identified, and their permissions align with the given policy.
 
-<img width="585" height="1266" alt="IMG_7258" src="https://github.com/user-attachments/assets/f09cdce1-e29f-4bae-a114-b4ccc167ab33" />
+<img src="https://github.com/user-attachments/assets/f09cdce1-e29f-4bae-a114-b4ccc167ab33" width="50%"/>
 
 
 With these parts in place, I then added in the voice identification following the [Picovoice Eagle Documentation](https://picovoice.ai/docs/eagle/). I started with user voice registration, and then added logic into the AR session manager to call to the authentication script to identify the user when the first marker is scanned. With this in place, I finally added in transcription via SFSpeechRecognizer, and added in basic logic to parse the transcript and search for the generated pin code.
