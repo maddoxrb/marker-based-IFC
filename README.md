@@ -81,18 +81,18 @@ Existing research on privacy and security in Augmented Reality systems largely f
 ## System Design and Implementation
 To develop this project, I used an agile-like process to slowly build sections of the code in shorts sprints, slowly layering more complexity on top of each foundational piece. I initially began by just developing the marker recognition logic, this was suprisingly simple and easy to implement through ARKit and RealityKit, their documentation was thorough and the SDK abstracts away much of the complexity. With marker tracking developed, I then began working on some of the necessary Swift-side UIs, particuraly marker registration, audio capture (credit [Voice Recorder](https://github.com/pinlunhuang/Voice-Recorder)), and user registration. 
 
-<img src="https://github.com/user-attachments/assets/ffa6ff2c-6815-4ba2-b365-6ef97461f860" width="50%"/>
+<img src="https://github.com/user-attachments/assets/ffa6ff2c-6815-4ba2-b365-6ef97461f860" width="25%"/>
 
 With core pieces in place, I then worked on the confidentiality policy system. Firstly I defined policies by the virtual object attatched and the required access level (public, employee, admin) required to view it, and created a mapping system from markers to policies. I added in a simple UI that would allow policies to be added and edited for each marker, which helped a lot with testing. Then in the scene coordinator I added the actual policy enforcement logic, which allows visibility if a user has been identified, and their permissions align with the given policy.
 
-<img src="https://github.com/user-attachments/assets/f09cdce1-e29f-4bae-a114-b4ccc167ab33" width="50%"/>
+<img src="https://github.com/user-attachments/assets/f09cdce1-e29f-4bae-a114-b4ccc167ab33" width="25%"/>
 
 
 With these parts in place, I then added in the voice identification following the [Picovoice Eagle Documentation](https://picovoice.ai/docs/eagle/). I started with user voice registration, and then added logic into the AR session manager to call to the authentication script to identify the user when the first marker is scanned. With this in place, I finally added in transcription via SFSpeechRecognizer, and added in basic logic to parse the transcript and search for the generated pin code.
 
-<img width="1170" height="2532" alt="image" src="https://github.com/user-attachments/assets/1a87c6be-6557-486e-ba39-3a980fd30409" />
+<img src="https://github.com/user-attachments/assets/1a87c6be-6557-486e-ba39-3a980fd30409" width="25%"/>
 
-<img width="1170" height="2532" alt="image" src="https://github.com/user-attachments/assets/bd3daee1-7912-46c3-aaab-653561459b3d" />
+<img src="https://github.com/user-attachments/assets/bd3daee1-7912-46c3-aaab-653561459b3d" width="25%"/>
 
 
 The overall system architecture and design has remained largely consistent since the initial planning and MVD with a few general shifts. Firstly, as discussed in the MVD, object movement and integrity enforcement were ruled out of scope for this project as they largely did not add to the key novelty of the study, specifically that of the marker-tied voice authentication. Secondly, after further research and testing I opted to switch away from the SpeakerKit SDK for voice identification due to development limitations, instead I switched to the PicoVoice Eagle model SDK which has far stronger claimed accuracy and is used widely in industry. Additionally, I reworked the voice identification structure to improve upon some accuracy limitations. In the MVD, I initially captured a 10 second recording and averaged out the model's confidence score for the speaker identity over the entire clip. This led to significant decreases in accuracy as dead-noise or environmental diruptions had far more impact on the on the final recognition result. Instead, the current system captures eagle confidence scores frame by frame, filters out any low signal energy frames indicative of silence, and uses an average of the strongest high energy frames for identification instead. The below section gives a more in depth breakdown of the full architecture and main technical components. 
