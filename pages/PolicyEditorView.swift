@@ -51,7 +51,7 @@ struct PolicyEditorView: View {
 
             if let policy = appModel.markerPolicies[selectedMarker] {
                 Section("Preview") {
-                    Text("Object: \(policy.objectID)")
+                    Text("Object: \(PresetObject.displayName(for: policy.objectID))")
                     Text("Minimum Role: \(policy.minimumRole.displayName)")
                 }
             }

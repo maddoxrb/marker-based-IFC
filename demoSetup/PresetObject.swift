@@ -4,9 +4,9 @@ import Foundation
 // Any object can be attatched to a marker
 
 enum PresetObject: String, CaseIterable, Identifiable {
-    case cubeGreen = "markerA-shared"
-    case coneBlue = "markerB-employee"
-    case spherePurple = "markerB-admin"
+    case cubeGreen = "green-cube"
+    case coneBlue = "blue-cone"
+    case spherePurple = "purple-sphere"
     case panelRed = "restricted-panel"
 
     var id: String { rawValue }
@@ -18,5 +18,9 @@ enum PresetObject: String, CaseIterable, Identifiable {
         case .spherePurple: return "Purple Sphere"
         case .panelRed: return "Red Panel"
         }
+    }
+
+    static func displayName(for objectID: String) -> String {
+        PresetObject.allCases.first(where: { $0.rawValue == objectID })?.displayName ?? objectID
     }
 }

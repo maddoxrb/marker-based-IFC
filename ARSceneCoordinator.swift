@@ -12,7 +12,7 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
     }
 
     private struct ObjectRuntimeState {
-        let objectID: ARObjectID
+        var objectID: ARObjectID
         let markerName: String
     }
 
@@ -103,6 +103,7 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
 
         lastKnownMarkerPolicies = policies
         Set(policies.keys).union(markerStates.keys).forEach { ensureMarkerRuntime(for: $0) }
+        synchronizeObjectsWithPolicies()
         refreshAllContentForCurrentRole()
     }
 
@@ -238,6 +239,18 @@ final class ARSceneCoordinator: NSObject, ARSessionDelegate {
 
     private func markerPolicy(for markerName: String) -> MarkerPolicy {
         appModel.markerPolicies[markerName] ?? MarkerPolicy(minimumRole: .public, objectID: PresetObject.cubeGreen.rawValue)
+    }
+
+    private func synchronizeObjectsWithPolicies() {
+        for (markerName, markerState) in markerStates {
+            let desiredObjectID = markerPolicy(for: markerName).objectID
+
+            for objectID in markerState.childObjectIDs {
+                guard var object = objectStates[objectID], object.objectID != desiredObjectID else { continue }
+                object.objectID = desiredObjectID
+                objectStates[objectID] = object
+            }
+        }
     }
 
     private func seedInitialObjectIfNeeded(for markerName: String) {
